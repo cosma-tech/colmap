@@ -948,6 +948,15 @@ class PosePriorBundleAdjuster : public BundleAdjuster {
         }
       }
     }
+    
+    // Create lookdown prior loss function with hardcoded weight
+    lookdown_loss_function_ = std::make_unique<ceres::ScaledLoss>(
+      nullptr, 1000000.0, ceres::TAKE_OWNERSHIP);
+      
+    // Add lookdown prior for all camera poses
+    for (const image_t image_id : config_.Images()) {
+      AddLookDownPriorToProblem(image_id, reconstruction);
+    }
   }
 
   ceres::Solver::Summary Solve() override {
@@ -1010,6 +1019,27 @@ class PosePriorBundleAdjuster : public BundleAdjuster {
         cam_from_world_translation);
   }
 
+  void AddLookDownPriorToProblem(image_t image_id, 
+                                                    Reconstruction& reconstruction) {
+    std::shared_ptr<ceres::Problem> problem =
+        default_bundle_adjuster_->Problem();
+
+    Image& image = reconstruction.Image(image_id);
+    THROW_CHECK(image.HasPose());
+
+    double* cam_from_world_rotation =
+        image.CamFromWorld().rotation.coeffs().data();
+  
+    if (!problem->HasParameterBlock(cam_from_world_rotation)) {
+      return;
+    }
+
+    problem->AddResidualBlock(
+        CameraLookDownPriorCostFunctor::Create(),
+        lookdown_loss_function_.get(),
+        cam_from_world_rotation);
+  }
+
   bool AlignReconstruction() {
     RANSACOptions ransac_options;
     if (prior_options_.ransac_max_error > 0) {
@@ -1041,7 +1071,8 @@ class PosePriorBundleAdjuster : public BundleAdjuster {
         reconstruction_, pose_priors_, ransac_options, &metric_from_orig);
 
     if (success) {
-      reconstruction_.Transform(metric_from_orig);
+      // reconstruction_.Transform(metric_from_orig);
+      LOG(INFO) << "Alignment w.r.t. prior positions computed but not applied";
     } else {
       LOG(WARNING) << "Alignment w.r.t. prior positions failed";
     }
@@ -1075,6 +1106,7 @@ class PosePriorBundleAdjuster : public BundleAdjuster {
 
   std::unique_ptr<DefaultBundleAdjuster> default_bundle_adjuster_;
   std::unique_ptr<ceres::LossFunction> prior_loss_function_;
+  std::unique_ptr<ceres::LossFunction> lookdown_loss_function_;
 
   Sim3d normalized_from_metric_;
 };

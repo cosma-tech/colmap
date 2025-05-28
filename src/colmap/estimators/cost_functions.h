@@ -545,4 +545,38 @@ ceres::CostFunction* CreateCameraCostFunction(
   }
 }
 
+// CameraLookDownPriorCostFunctor is a 1-DoF error for the camera orientation
+// that enforces cameras to point downward in the world coordinate frame.
+// It computes the residual between the camera's z-axis and the negative world z-axis,
+// applying a cubic penalty to harshly penalize non-downward orientations.
+struct CameraLookDownPriorCostFunctor
+    : public AutoDiffCostFunctor<CameraLookDownPriorCostFunctor, 1, 4> {
+ public:
+  explicit CameraLookDownPriorCostFunctor() {}
+
+  template <typename T>
+  bool operator()(const T* const cam_from_world_rotation, T* residuals) const {
+    // Create camera z-axis vector (0, 0, 1) in camera frame
+    const Eigen::Matrix<T, 3, 1> camera_z(T(0), T(0), T(1));
+    
+    // Transform camera z-axis to world coordinates
+    const Eigen::Matrix<T, 3, 1> camera_z_in_world = 
+        EigenQuaternionMap<T>(cam_from_world_rotation).inverse() * camera_z;
+    
+    // Define world down vector (0, 0, -1)
+    const Eigen::Matrix<T, 3, 1> world_down(T(0), T(0), T(-1));
+    
+    // Calculate dot product
+    const T dot_product = camera_z_in_world.dot(world_down);
+    
+    // Compute cosine similarity
+    T cosine = T(1.0) - dot_product;
+    
+    // Store residuals
+    residuals[0] = cosine;
+    
+    return true;
+  }
+};
+
 }  // namespace colmap
