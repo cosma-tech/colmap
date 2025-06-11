@@ -35,6 +35,7 @@
 #include "colmap/scene/projection.h"
 #include "colmap/util/logging.h"
 #include "colmap/util/misc.h"
+#include "colmap/util/timer.h"
 
 namespace colmap {
 
@@ -48,8 +49,14 @@ bool MergeAndFilterReconstructions(const double max_reproj_error,
                             thread_pool)) {
     return false;
   }
+
+  Timer filter_timer;
+  filter_timer.Start();
   ObservationManager(tgt_reconstruction)
       .FilterAllPoints3D(max_reproj_error, /*min_tri_angle=*/0);
+  LOG(INFO) << StringPrintf("Filtering 3D points took %.2f seconds",
+                            filter_timer.ElapsedSeconds());
+
   return true;
 }
 

@@ -35,6 +35,7 @@
 #include "colmap/scene/projection.h"
 #include "colmap/util/logging.h"
 #include "colmap/util/threading.h"
+#include "colmap/util/timer.h"
 
 #include <unordered_map>
 
@@ -503,7 +504,14 @@ bool MergeReconstructions(const double max_reproj_error,
                           const Reconstruction& src_reconstruction,
                           Reconstruction& tgt_reconstruction,
                           ThreadPool* thread_pool) {
+  Timer timer;
+  timer.Start();
+
   Sim3d tgt_from_src;
+
+  // Align reconstructions
+  Timer align_timer;
+  align_timer.Start();
   if (!AlignReconstructionsViaReprojections(src_reconstruction,
                                             tgt_reconstruction,
                                             /*min_inlier_observations=*/0.3,
@@ -512,8 +520,12 @@ bool MergeReconstructions(const double max_reproj_error,
                                             thread_pool)) {
     return false;
   }
+  LOG(INFO) << StringPrintf("Alignment step took %.2f seconds",
+                            align_timer.ElapsedSeconds());
 
   // Find common and missing images in the two reconstructions.
+  Timer find_images_timer;
+  find_images_timer.Start();
   std::unordered_set<image_t> common_image_ids;
   common_image_ids.reserve(src_reconstruction.NumRegImages());
   std::unordered_set<image_t> missing_image_ids;
@@ -525,12 +537,18 @@ bool MergeReconstructions(const double max_reproj_error,
       missing_image_ids.insert(image_id);
     }
   }
+  LOG(INFO) << StringPrintf("Finding common/missing images took %.2f seconds",
+                            find_images_timer.ElapsedSeconds());
 
   // Register the missing images in this src_reconstruction.
+  Timer register_images_timer;
+  register_images_timer.Start();
   for (const auto image_id : missing_image_ids) {
     CopyRegisteredImage(
         image_id, tgt_from_src, src_reconstruction, tgt_reconstruction);
   }
+  LOG(INFO) << StringPrintf("Registering missing images took %.2f seconds",
+                            register_images_timer.ElapsedSeconds());
 
   // Merge the two point clouds using the following two rules:
   //    - copy points to this src_reconstruction with non-conflicting tracks,
@@ -539,6 +557,10 @@ bool MergeReconstructions(const double max_reproj_error,
   //    - merge tracks that are unambiguous, i.e. only merge points in the two
   //      reconstructions if they have a one-to-one mapping.
   // Note that in both cases no cheirality or reprojection test is performed.
+  Timer merge_points_timer;
+  merge_points_timer.Start();
+  size_t num_points_processed = 0;
+  const size_t total_points = src_reconstruction.Points3D().size();
 
   for (const auto& [_, point3D] : src_reconstruction.Points3D()) {
     Track new_track;
@@ -573,8 +595,20 @@ bool MergeReconstructions(const double max_reproj_error,
         tgt_reconstruction.MergePoints3D(point3D_id, *old_point3D_ids.begin());
       }
     }
-  }
 
+    num_points_processed++;
+    if (num_points_processed % 100000 == 0) {
+      LOG(INFO) << StringPrintf("Processed %d/%d 3D points (%.1f%%)",
+                                num_points_processed,
+                                total_points,
+                                100.0 * num_points_processed / total_points);
+    }
+  }
+  LOG(INFO) << StringPrintf("Merging 3D points took %.2f seconds",
+                            merge_points_timer.ElapsedSeconds());
+
+  LOG(INFO) << StringPrintf("Total merge time: %.2f seconds",
+                            timer.ElapsedSeconds());
   return true;
 }
 
