@@ -754,12 +754,6 @@ int RunModelMerger(int argc, char** argv) {
   LOG(INFO) << StringPrintf("Images: %d", reconstruction2.NumRegImages());
   LOG(INFO) << StringPrintf("Points: %d", reconstruction2.NumPoints3D());
 
-  // Find and print number of common images
-  const std::vector<std::pair<image_t, image_t>> common_image_ids =
-      reconstruction1.FindCommonRegImageIds(reconstruction2);
-  LOG(INFO) << StringPrintf("Common images between models: %d",
-                            common_image_ids.size());
-
   PrintHeading2("Merging reconstructions");
   if (MergeAndFilterReconstructions(
           max_reproj_error, reconstruction1, reconstruction2, &thread_pool)) {
