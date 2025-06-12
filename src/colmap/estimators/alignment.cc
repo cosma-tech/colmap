@@ -123,7 +123,7 @@ struct ReconstructionAlignmentEstimator {
         }));
       }
       for (auto& future : futures) {
-        future.wait();
+        future.get();
       }
     } else {
       for (size_t i = 0; i < src_images.size(); ++i) {
