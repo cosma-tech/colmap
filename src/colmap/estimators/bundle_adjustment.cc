@@ -946,18 +946,18 @@ class PosePriorBundleAdjuster : public BundleAdjuster {
         options_, config_, reconstruction);
 
     if (use_prior_position) {
-      if (prior_options_.use_robust_loss_on_prior_position) {
-        prior_loss_function_ = std::make_unique<ceres::CauchyLoss>(
-            prior_options_.prior_position_loss_scale);
-      }
+      // if (prior_options_.use_robust_loss_on_prior_position) {
+      //   prior_loss_function_ = std::make_unique<ceres::CauchyLoss>(
+      //       prior_options_.prior_position_loss_scale);
+      // }
 
-      for (const image_t image_id : config_.Images()) {
-        const auto pose_prior_it = pose_priors_.find(image_id);
-        if (pose_prior_it != pose_priors_.end()) {
-          AddPosePriorToProblem(
-              image_id, pose_prior_it->second, reconstruction);
-        }
-      }
+      // for (const image_t image_id : config_.Images()) {
+      //   const auto pose_prior_it = pose_priors_.find(image_id);
+      //   if (pose_prior_it != pose_priors_.end()) {
+      //     AddPosePriorToProblem(
+      //         image_id, pose_prior_it->second, reconstruction);
+      //   }
+      // }
     }
     
     // Create lookdown prior loss function with hardcoded weight
