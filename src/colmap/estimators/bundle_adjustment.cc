@@ -1044,8 +1044,8 @@ class PosePriorBundleAdjuster : public BundleAdjuster {
     Image& image = reconstruction.Image(image_id);
     THROW_CHECK(image.HasPose());
 
-    double* cam_from_world_rotation =
-        image.CamFromWorld().rotation.coeffs().data();
+    Rigid3d& cam_from_world = image.FramePtr()->RigFromWorld();
+    double* cam_from_world_rotation = cam_from_world.rotation.coeffs().data();
   
     if (!problem->HasParameterBlock(cam_from_world_rotation)) {
       return;
