@@ -41,6 +41,7 @@ bool BundleAdjuster::Solve(
   ceres::Solver::Summary summary;
 
 #ifdef GLOMAP_CUDA_ENABLED
+  const int num_images = images.size();
   bool cuda_solver_enabled = false;
 
 #if (CERES_VERSION_MAJOR >= 3 ||                                \
