@@ -34,6 +34,7 @@ cmake_minimum_required(VERSION 3.12)
 # Options
 ################################################################################
 
+option(GLOMAP_ENABLED "Whether to enable GLOMAP" OFF)
 option(SIMD_ENABLED "Whether to enable SIMD optimizations" ON)
 option(OPENMP_ENABLED "Whether to enable OpenMP parallelization" ON)
 option(IPO_ENABLED "Whether to enable interprocedural optimization" ON)
@@ -78,7 +79,7 @@ endif()
 
 project(COLMAP LANGUAGES C CXX)
 
-set(COLMAP_VERSION "3.13.0.dev0")
+set(COLMAP_VERSION "3.14.0.dev0")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -238,9 +239,6 @@ else()
 endif()
 
 if(COVERAGE_ENABLED)
-    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        message(FATAL_ERROR "Coverage can only be enabled in Debug or RelWithDebInfo mode")
-    endif()
     message(STATUS "Enabling coverage support")
 else()
     message(STATUS "Disabling coverage support")
@@ -257,6 +255,9 @@ include_directories(src)
 link_directories(${COLMAP_LINK_DIRS})
 
 add_subdirectory(src/colmap)
+if(GLOMAP_ENABLED)
+    add_subdirectory(src/glomap)
+endif()
 add_subdirectory(src/thirdparty)
 
 ################################################################################

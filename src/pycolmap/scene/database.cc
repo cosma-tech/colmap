@@ -67,10 +67,10 @@ class PyDatabaseImpl : public Database, py::trampoline_self_life_support {
     PYBIND11_OVERRIDE_PURE(bool, Database, ExistsMatches, image_id1, image_id2);
   }
 
-  bool ExistsInlierMatches(image_t image_id1,
-                           image_t image_id2) const override {
+  bool ExistsTwoViewGeometry(image_t image_id1,
+                             image_t image_id2) const override {
     PYBIND11_OVERRIDE_PURE(
-        bool, Database, ExistsInlierMatches, image_id1, image_id2);
+        bool, Database, ExistsTwoViewGeometry, image_id1, image_id2);
   }
 
   size_t NumRigs() const override {
@@ -324,8 +324,36 @@ class PyDatabaseImpl : public Database, py::trampoline_self_life_support {
         void, Database, UpdatePosePrior, image_id, pose_prior);
   }
 
+  void UpdateKeypoints(image_t image_id,
+                       const FeatureKeypoints& keypoints) override {
+    PYBIND11_OVERRIDE_PURE(
+        void, Database, UpdateKeypoints, image_id, keypoints);
+  }
+
+  void UpdateKeypoints(image_t image_id,
+                       const FeatureKeypointsBlob& blob) override {
+    PYBIND11_OVERRIDE_PURE(void, Database, UpdateKeypoints, image_id, blob);
+  }
+
+  void UpdateTwoViewGeometry(
+      image_t image_id1,
+      image_t image_id2,
+      const TwoViewGeometry& two_view_geometry) override {
+    PYBIND11_OVERRIDE_PURE(void,
+                           Database,
+                           UpdateTwoViewGeometry,
+                           image_id1,
+                           image_id2,
+                           two_view_geometry);
+  }
+
   void DeleteMatches(image_t image_id1, image_t image_id2) override {
     PYBIND11_OVERRIDE_PURE(void, Database, DeleteMatches, image_id1, image_id2);
+  }
+
+  void DeleteTwoViewGeometry(image_t image_id1, image_t image_id2) override {
+    PYBIND11_OVERRIDE_PURE(
+        void, Database, DeleteTwoViewGeometry, image_id1, image_id2);
   }
 
   void DeleteInlierMatches(image_t image_id1, image_t image_id2) override {
@@ -391,7 +419,9 @@ void BindDatabase(py::module& m) {
       .def("close", &Database::Close)
       .def("__enter__", [](Database& self) { return &self; })
       .def("__exit__", [](Database& self, const py::args&) { self.Close(); })
+      .def("exists_rig", &Database::ExistsRig, "rig_id"_a)
       .def("exists_camera", &Database::ExistsCamera, "camera_id"_a)
+      .def("exists_frame", &Database::ExistsFrame, "frame_id"_a)
       .def("exists_image", &Database::ExistsImage, "image_id"_a)
       .def("exists_image", &Database::ExistsImageWithName, "name"_a)
       .def("exists_pose_prior", &Database::ExistsPosePrior, "image_id"_a)
@@ -401,8 +431,8 @@ void BindDatabase(py::module& m) {
            &Database::ExistsMatches,
            "image_id1"_a,
            "image_id2"_a)
-      .def("exists_inlier_matches",
-           &Database::ExistsInlierMatches,
+      .def("exists_two_view_geometry",
+           &Database::ExistsTwoViewGeometry,
            "image_id1"_a,
            "image_id2"_a)
       .def("num_rigs", &Database::NumRigs)
@@ -508,10 +538,15 @@ void BindDatabase(py::module& m) {
             return std::make_pair(std::move(all_pair_ids),
                                   std::move(all_num_inliers));
           })
+      .def("write_rig", &Database::WriteRig, "rig"_a, "use_rig_id"_a = false)
       .def("write_camera",
            &Database::WriteCamera,
            "camera"_a,
            "use_camera_id"_a = false)
+      .def("write_frame",
+           &Database::WriteFrame,
+           "frame"_a,
+           "use_frame_id"_a = false)
       .def("write_image",
            &Database::WriteImage,
            "image"_a,
@@ -540,10 +575,30 @@ void BindDatabase(py::module& m) {
            "image_id1"_a,
            "image_id2"_a,
            "two_view_geometry"_a)
+      .def("update_rig", &Database::UpdateRig, "rig"_a)
       .def("update_camera", &Database::UpdateCamera, "camera"_a)
+      .def("update_frame", &Database::UpdateFrame, "frame"_a)
       .def("update_image", &Database::UpdateImage, "image"_a)
+      .def("update_pose_prior",
+           &Database::UpdatePosePrior,
+           "image_id"_a,
+           "pose_prior"_a)
+      .def("update_keypoints",
+           py::overload_cast<image_t, const FeatureKeypointsBlob&>(
+               &Database::UpdateKeypoints),
+           "image_id"_a,
+           "keypoints"_a)
+      .def("update_two_view_geometry",
+           &Database::UpdateTwoViewGeometry,
+           "image_id1"_a,
+           "image_id2"_a,
+           "two_view_geometry"_a)
       .def("delete_matches",
            &Database::DeleteMatches,
+           "image_id1"_a,
+           "image_id2"_a)
+      .def("delete_two_view_geometry",
+           &Database::DeleteTwoViewGeometry,
            "image_id1"_a,
            "image_id2"_a)
       .def("delete_inlier_matches",
@@ -551,7 +606,9 @@ void BindDatabase(py::module& m) {
            "image_id1"_a,
            "image_id2"_a)
       .def("clear_all_tables", &Database::ClearAllTables)
+      .def("clear_rigs", &Database::ClearRigs)
       .def("clear_cameras", &Database::ClearCameras)
+      .def("clear_frames", &Database::ClearFrames)
       .def("clear_images", &Database::ClearImages)
       .def("clear_pose_priors", &Database::ClearPosePriors)
       .def("clear_descriptors", &Database::ClearDescriptors)

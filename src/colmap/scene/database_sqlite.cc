@@ -29,11 +29,41 @@
 
 #include "colmap/scene/database.h"
 #include "colmap/util/endian.h"
-#include "colmap/util/sqlite3_utils.h"
 #include "colmap/util/string.h"
+
+#include <sqlite3.h>
 
 namespace colmap {
 namespace {
+
+inline int SQLite3CallHelper(int result_code,
+                             const std::string& filename,
+                             int line) {
+  switch (result_code) {
+    case SQLITE_OK:
+    case SQLITE_ROW:
+    case SQLITE_DONE:
+      return result_code;
+    default:
+      LogMessageFatalThrow<std::runtime_error>(filename.c_str(), line).stream()
+          << "SQLite error: " << sqlite3_errstr(result_code);
+      return result_code;
+  }
+}
+
+#define SQLITE3_CALL(func) SQLite3CallHelper(func, __FILE__, __LINE__)
+
+#define SQLITE3_EXEC(database, sql, callback)                             \
+  {                                                                       \
+    char* err_msg = nullptr;                                              \
+    const int result_code = sqlite3_exec(                                 \
+        THROW_CHECK_NOTNULL(database), sql, callback, nullptr, &err_msg); \
+    if (result_code != SQLITE_OK) {                                       \
+      LOG(ERROR) << "SQLite error [" << __FILE__ << ", line " << __LINE__ \
+                 << "]: " << err_msg;                                     \
+      sqlite3_free(err_msg);                                              \
+    }                                                                     \
+  }
 
 struct Sqlite3StmtContext {
   explicit Sqlite3StmtContext(sqlite3_stmt* sql_stmt)
@@ -45,7 +75,9 @@ struct Sqlite3StmtContext {
 };
 
 void SwapFeatureMatchesBlob(FeatureMatchesBlob* matches) {
-  matches->col(0).swap(matches->col(1));
+  for (Eigen::Index i = 0; i < matches->rows(); ++i) {
+    std::swap((*matches)(i, 0), (*matches)(i, 1));
+  }
 }
 
 FeatureKeypointsBlob FeatureKeypointsToBlob(const FeatureKeypoints& keypoints) {
@@ -352,6 +384,9 @@ Image ReadImageRow(sqlite3_stmt* sql_stmt) {
   image.SetName(std::string(
       reinterpret_cast<const char*>(sqlite3_column_text(sql_stmt, 1))));
   image.SetCameraId(static_cast<camera_t>(sqlite3_column_int64(sql_stmt, 2)));
+  if (sqlite3_column_type(sql_stmt, 3) != SQLITE_NULL) {
+    image.SetFrameId(static_cast<frame_t>(sqlite3_column_int64(sql_stmt, 3)));
+  }
 
   return image;
 }
@@ -359,7 +394,7 @@ Image ReadImageRow(sqlite3_stmt* sql_stmt) {
 void WriteRigSensors(const rig_t rig_id,
                      const Rig& rig,
                      sqlite3_stmt* sql_stmt) {
-  for (const auto& [sensor_id, sensor_from_rig] : rig.Sensors()) {
+  for (const auto& [sensor_id, sensor_from_rig] : rig.NonRefSensors()) {
     Sqlite3StmtContext context(sql_stmt);
 
     SQLITE3_CALL(sqlite3_bind_int64(sql_stmt, 1, rig_id));
@@ -509,8 +544,8 @@ class SqliteDatabase : public Database {
                        ImagePairToPairId(image_id1, image_id2));
   }
 
-  bool ExistsInlierMatches(const image_t image_id1,
-                           const image_t image_id2) const override {
+  bool ExistsTwoViewGeometry(const image_t image_id1,
+                             const image_t image_id2) const override {
     return ExistsRowId(sql_stmt_exists_two_view_geometry_,
                        ImagePairToPairId(image_id1, image_id2));
   }
@@ -949,110 +984,120 @@ class SqliteDatabase : public Database {
   rig_t WriteRig(const Rig& rig, const bool use_rig_id) override {
     THROW_CHECK(rig.NumSensors() > 0) << "Rig must have at least one sensor";
 
-    Sqlite3StmtContext context(sql_stmt_add_rig_);
+    Sqlite3StmtContext context(sql_stmt_write_rig_);
 
     if (use_rig_id) {
       THROW_CHECK(!ExistsRig(rig.RigId())) << "rig_id must be unique";
-      SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_add_rig_, 1, rig.RigId()));
+      SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_write_rig_, 1, rig.RigId()));
     } else {
-      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_add_rig_, 1));
+      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_write_rig_, 1));
     }
 
     SQLITE3_CALL(
-        sqlite3_bind_int64(sql_stmt_add_rig_,
+        sqlite3_bind_int64(sql_stmt_write_rig_,
                            2,
                            static_cast<sqlite3_int64>(rig.RefSensorId().id)));
     SQLITE3_CALL(
-        sqlite3_bind_int64(sql_stmt_add_rig_,
+        sqlite3_bind_int64(sql_stmt_write_rig_,
                            3,
                            static_cast<sqlite3_int64>(rig.RefSensorId().type)));
 
-    SQLITE3_CALL(sqlite3_step(sql_stmt_add_rig_));
+    SQLITE3_CALL(sqlite3_step(sql_stmt_write_rig_));
 
     const rig_t rig_id = static_cast<rig_t>(
         sqlite3_last_insert_rowid(THROW_CHECK_NOTNULL(database_)));
 
-    WriteRigSensors(rig_id, rig, sql_stmt_add_rig_sensor_);
+    WriteRigSensors(rig_id, rig, sql_stmt_write_rig_sensor_);
 
     return rig_id;
   }
 
   camera_t WriteCamera(const Camera& camera,
                        const bool use_camera_id) override {
-    Sqlite3StmtContext context(sql_stmt_add_camera_);
+    Sqlite3StmtContext context(sql_stmt_write_camera_);
 
     if (use_camera_id) {
       THROW_CHECK(!ExistsCamera(camera.camera_id))
           << "camera_id must be unique";
       SQLITE3_CALL(
-          sqlite3_bind_int64(sql_stmt_add_camera_, 1, camera.camera_id));
+          sqlite3_bind_int64(sql_stmt_write_camera_, 1, camera.camera_id));
     } else {
-      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_add_camera_, 1));
+      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_write_camera_, 1));
     }
 
+    SQLITE3_CALL(
+        sqlite3_bind_int64(sql_stmt_write_camera_,
+                           2,
+                           static_cast<sqlite3_int64>(camera.model_id)));
     SQLITE3_CALL(sqlite3_bind_int64(
-        sql_stmt_add_camera_, 2, static_cast<sqlite3_int64>(camera.model_id)));
+        sql_stmt_write_camera_, 3, static_cast<sqlite3_int64>(camera.width)));
     SQLITE3_CALL(sqlite3_bind_int64(
-        sql_stmt_add_camera_, 3, static_cast<sqlite3_int64>(camera.width)));
-    SQLITE3_CALL(sqlite3_bind_int64(
-        sql_stmt_add_camera_, 4, static_cast<sqlite3_int64>(camera.height)));
+        sql_stmt_write_camera_, 4, static_cast<sqlite3_int64>(camera.height)));
 
     const size_t num_params_bytes = sizeof(double) * camera.params.size();
-    SQLITE3_CALL(sqlite3_bind_blob(sql_stmt_add_camera_,
+    SQLITE3_CALL(sqlite3_bind_blob(sql_stmt_write_camera_,
                                    5,
                                    camera.params.data(),
                                    static_cast<int>(num_params_bytes),
                                    SQLITE_STATIC));
 
     SQLITE3_CALL(sqlite3_bind_int64(
-        sql_stmt_add_camera_, 6, camera.has_prior_focal_length));
+        sql_stmt_write_camera_, 6, camera.has_prior_focal_length));
 
-    SQLITE3_CALL(sqlite3_step(sql_stmt_add_camera_));
+    SQLITE3_CALL(sqlite3_step(sql_stmt_write_camera_));
 
     return static_cast<camera_t>(
         sqlite3_last_insert_rowid(THROW_CHECK_NOTNULL(database_)));
   }
 
   frame_t WriteFrame(const Frame& frame, const bool use_frame_id) override {
-    Sqlite3StmtContext context(sql_stmt_add_frame_);
+    Sqlite3StmtContext context(sql_stmt_write_frame_);
 
     if (use_frame_id) {
       THROW_CHECK(!ExistsFrame(frame.FrameId())) << "frame_id must be unique";
-      SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_add_frame_, 1, frame.FrameId()));
+      SQLITE3_CALL(
+          sqlite3_bind_int64(sql_stmt_write_frame_, 1, frame.FrameId()));
     } else {
-      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_add_frame_, 1));
+      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_write_frame_, 1));
     }
 
-    SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_add_frame_, 2, frame.RigId()));
+    SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_write_frame_, 2, frame.RigId()));
 
-    SQLITE3_CALL(sqlite3_step(sql_stmt_add_frame_));
+    SQLITE3_CALL(sqlite3_step(sql_stmt_write_frame_));
 
     const frame_t frame_id = static_cast<frame_t>(
         sqlite3_last_insert_rowid(THROW_CHECK_NOTNULL(database_)));
 
-    WriteFrameData(frame_id, frame, sql_stmt_add_frame_data_);
+    WriteFrameData(frame_id, frame, sql_stmt_write_frame_data_);
 
     return frame_id;
   }
 
   image_t WriteImage(const Image& image, const bool use_image_id) override {
-    Sqlite3StmtContext context(sql_stmt_add_image_);
+    if (image.HasFrameId()) {
+      const Frame frame = ReadFrame(image.FrameId());
+      THROW_CHECK(frame.HasDataId(image.DataId()));
+    }
+
+    Sqlite3StmtContext context(sql_stmt_write_image_);
 
     if (use_image_id) {
       THROW_CHECK(!ExistsImage(image.ImageId())) << "image_id must be unique";
-      SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_add_image_, 1, image.ImageId()));
+      SQLITE3_CALL(
+          sqlite3_bind_int64(sql_stmt_write_image_, 1, image.ImageId()));
     } else {
-      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_add_image_, 1));
+      SQLITE3_CALL(sqlite3_bind_null(sql_stmt_write_image_, 1));
     }
 
-    SQLITE3_CALL(sqlite3_bind_text(sql_stmt_add_image_,
+    SQLITE3_CALL(sqlite3_bind_text(sql_stmt_write_image_,
                                    2,
                                    image.Name().c_str(),
                                    static_cast<int>(image.Name().size()),
                                    SQLITE_STATIC));
-    SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_add_image_, 3, image.CameraId()));
+    SQLITE3_CALL(
+        sqlite3_bind_int64(sql_stmt_write_image_, 3, image.CameraId()));
 
-    SQLITE3_CALL(sqlite3_step(sql_stmt_add_image_));
+    SQLITE3_CALL(sqlite3_step(sql_stmt_write_image_));
 
     return static_cast<image_t>(
         sqlite3_last_insert_rowid(THROW_CHECK_NOTNULL(database_)));
@@ -1128,6 +1173,9 @@ class SqliteDatabase : public Database {
   void WriteTwoViewGeometry(const image_t image_id1,
                             const image_t image_id2,
                             const TwoViewGeometry& two_view_geometry) override {
+    THROW_CHECK(!ExistsTwoViewGeometry(image_id1, image_id2))
+        << "Two view geometry between image " << image_id1 << " and "
+        << image_id2 << " already exists.";
     Sqlite3StmtContext context(sql_stmt_write_two_view_geometry_);
 
     const image_pair_t pair_id = ImagePairToPairId(image_id1, image_id2);
@@ -1165,27 +1213,13 @@ class SqliteDatabase : public Database {
         two_view_geometry_ptr->cam2_from_cam1.rotation.y(),
         two_view_geometry_ptr->cam2_from_cam1.rotation.z());
 
-    if (two_view_geometry_ptr->inlier_matches.size() > 0) {
-      WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, Ft, 6);
-      WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, Et, 7);
-      WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, Ht, 8);
-      WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, quat_wxyz, 9);
-      WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_,
-                            two_view_geometry_ptr->cam2_from_cam1.translation,
-                            10);
-    } else {
-      WriteStaticMatrixBlob(
-          sql_stmt_write_two_view_geometry_, Eigen::MatrixXd(0, 0), 6);
-      WriteStaticMatrixBlob(
-          sql_stmt_write_two_view_geometry_, Eigen::MatrixXd(0, 0), 7);
-      WriteStaticMatrixBlob(
-          sql_stmt_write_two_view_geometry_, Eigen::MatrixXd(0, 0), 8);
-      WriteStaticMatrixBlob(
-          sql_stmt_write_two_view_geometry_, Eigen::MatrixXd(0, 0), 9);
-      WriteStaticMatrixBlob(
-          sql_stmt_write_two_view_geometry_, Eigen::MatrixXd(0, 0), 10);
-    }
-
+    WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, Ft, 6);
+    WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, Et, 7);
+    WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, Ht, 8);
+    WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_, quat_wxyz, 9);
+    WriteStaticMatrixBlob(sql_stmt_write_two_view_geometry_,
+                          two_view_geometry_ptr->cam2_from_cam1.translation,
+                          10);
     SQLITE3_CALL(sqlite3_step(sql_stmt_write_two_view_geometry_));
   }
 
@@ -1214,7 +1248,7 @@ class SqliteDatabase : public Database {
     }
 
     // Write the updated rig sensors.
-    WriteRigSensors(rig.RigId(), rig, sql_stmt_add_rig_sensor_);
+    WriteRigSensors(rig.RigId(), rig, sql_stmt_write_rig_sensor_);
   }
 
   void UpdateCamera(const Camera& camera) override {
@@ -1265,10 +1299,15 @@ class SqliteDatabase : public Database {
     }
 
     // Write the updated frame data.
-    WriteFrameData(frame.FrameId(), frame, sql_stmt_add_frame_data_);
+    WriteFrameData(frame.FrameId(), frame, sql_stmt_write_frame_data_);
   }
 
   void UpdateImage(const Image& image) override {
+    if (image.HasFrameId()) {
+      const Frame frame = ReadFrame(image.FrameId());
+      THROW_CHECK(frame.HasDataId(image.DataId()));
+    }
+
     Sqlite3StmtContext context(sql_stmt_update_image_);
 
     SQLITE3_CALL(sqlite3_bind_text(sql_stmt_update_image_,
@@ -1299,6 +1338,33 @@ class SqliteDatabase : public Database {
     SQLITE3_CALL(sqlite3_step(sql_stmt_update_pose_prior_));
   }
 
+  void UpdateKeypoints(image_t image_id,
+                       const FeatureKeypoints& keypoints) override {
+    UpdateKeypoints(image_id, FeatureKeypointsToBlob(keypoints));
+  }
+
+  void UpdateKeypoints(image_t image_id,
+                       const FeatureKeypointsBlob& blob) override {
+    Sqlite3StmtContext context(sql_stmt_update_keypoints_);
+
+    WriteDynamicMatrixBlob(sql_stmt_update_keypoints_, blob, 1);
+    SQLITE3_CALL(sqlite3_bind_int64(sql_stmt_update_keypoints_, 4, image_id));
+
+    SQLITE3_CALL(sqlite3_step(sql_stmt_update_keypoints_));
+  }
+
+  void UpdateTwoViewGeometry(
+      const image_t image_id1,
+      const image_t image_id2,
+      const TwoViewGeometry& two_view_geometry) override {
+    // Do nothing if the image pair does not exist, to align with the UPDATE
+    // behavior in SQL.
+    if (ExistsTwoViewGeometry(image_id1, image_id2)) {
+      DeleteTwoViewGeometry(image_id1, image_id2);
+      WriteTwoViewGeometry(image_id1, image_id2, two_view_geometry);
+    }
+  }
+
   void DeleteMatches(const image_t image_id1,
                      const image_t image_id2) override {
     Sqlite3StmtContext context(sql_stmt_delete_matches_);
@@ -1310,8 +1376,8 @@ class SqliteDatabase : public Database {
     database_entry_deleted_ = true;
   }
 
-  void DeleteInlierMatches(const image_t image_id1,
-                           const image_t image_id2) override {
+  void DeleteTwoViewGeometry(const image_t image_id1,
+                             const image_t image_id2) override {
     Sqlite3StmtContext context(sql_stmt_delete_two_view_geometry_);
 
     const image_pair_t pair_id = ImagePairToPairId(image_id1, image_id2);
@@ -1320,6 +1386,16 @@ class SqliteDatabase : public Database {
                                     static_cast<sqlite3_int64>(pair_id)));
     SQLITE3_CALL(sqlite3_step(sql_stmt_delete_two_view_geometry_));
     database_entry_deleted_ = true;
+  }
+
+  void DeleteInlierMatches(const image_t image_id1,
+                           const image_t image_id2) override {
+    if (!ExistsTwoViewGeometry(image_id1, image_id2)) {
+      return;
+    }
+    TwoViewGeometry geom = ReadTwoViewGeometry(image_id1, image_id2);
+    geom.inlier_matches.clear();
+    UpdateTwoViewGeometry(image_id1, image_id2, geom);
   }
 
   void ClearAllTables() override {
@@ -1388,184 +1464,6 @@ class SqliteDatabase : public Database {
     database_entry_deleted_ = true;
   }
 
-  void Merge(const Database& database1,
-             const Database& database2,
-             Database* merged_database) {
-    // Merge the cameras.
-
-    std::unordered_map<camera_t, camera_t> new_camera_ids1;
-    for (const auto& camera : database1.ReadAllCameras()) {
-      const camera_t new_camera_id = merged_database->WriteCamera(camera);
-      new_camera_ids1.emplace(camera.camera_id, new_camera_id);
-    }
-
-    std::unordered_map<camera_t, camera_t> new_camera_ids2;
-    for (const auto& camera : database2.ReadAllCameras()) {
-      const camera_t new_camera_id = merged_database->WriteCamera(camera);
-      new_camera_ids2.emplace(camera.camera_id, new_camera_id);
-    }
-
-    // Merge the rigs.
-
-    auto update_rig =
-        [](const Rig& rig,
-           const std::unordered_map<camera_t, camera_t>& new_camera_ids) {
-          if (rig.NumSensors() == 0) {
-            return rig;
-          }
-          Rig updated_rig;
-          updated_rig.SetRigId(rig.RigId());
-          sensor_t ref_sensor_id = rig.RefSensorId();
-          if (ref_sensor_id.type == SensorType::CAMERA) {
-            ref_sensor_id.id = new_camera_ids.at(ref_sensor_id.id);
-          }
-          updated_rig.AddRefSensor(ref_sensor_id);
-          for (const auto& [sensor_id, sensor_from_rig] : rig.Sensors()) {
-            sensor_t updated_sensor_id = sensor_id;
-            if (sensor_id.type == SensorType::CAMERA) {
-              updated_sensor_id.id = new_camera_ids.at(sensor_id.id);
-            }
-            updated_rig.AddSensor(updated_sensor_id, sensor_from_rig);
-          }
-          return updated_rig;
-        };
-
-    std::unordered_map<rig_t, rig_t> new_rig_ids1;
-    for (auto& rig : database1.ReadAllRigs()) {
-      const rig_t new_rig_id =
-          merged_database->WriteRig(update_rig(rig, new_camera_ids1));
-      new_rig_ids1.emplace(rig.RigId(), new_rig_id);
-    }
-
-    std::unordered_map<rig_t, rig_t> new_rig_ids2;
-    for (auto& rig : database2.ReadAllRigs()) {
-      const rig_t new_rig_id =
-          merged_database->WriteRig(update_rig(rig, new_camera_ids2));
-      new_rig_ids2.emplace(rig.RigId(), new_rig_id);
-    }
-
-    // Merge the images.
-
-    std::unordered_map<image_t, image_t> new_image_ids1;
-    for (auto& image : database1.ReadAllImages()) {
-      image.SetCameraId(new_camera_ids1.at(image.CameraId()));
-      THROW_CHECK(!merged_database->ExistsImageWithName(image.Name()))
-          << "The two databases must not contain images with the same name, "
-             "but "
-             "there are images with name "
-          << image.Name() << " in both databases";
-      const image_t new_image_id = merged_database->WriteImage(image);
-      new_image_ids1.emplace(image.ImageId(), new_image_id);
-      const auto keypoints = database1.ReadKeypoints(image.ImageId());
-      const auto descriptors = database1.ReadDescriptors(image.ImageId());
-      merged_database->WriteKeypoints(new_image_id, keypoints);
-      merged_database->WriteDescriptors(new_image_id, descriptors);
-      if (database1.ExistsPosePrior(image.ImageId())) {
-        merged_database->WritePosePrior(
-            new_image_id, database1.ReadPosePrior(image.ImageId()));
-      }
-    }
-
-    std::unordered_map<image_t, image_t> new_image_ids2;
-    for (auto& image : database2.ReadAllImages()) {
-      image.SetCameraId(new_camera_ids2.at(image.CameraId()));
-      THROW_CHECK(!merged_database->ExistsImageWithName(image.Name()))
-          << "The two databases must not contain images with the same name, "
-             "but "
-             "there are images with name "
-          << image.Name() << " in both databases";
-      const image_t new_image_id = merged_database->WriteImage(image);
-      new_image_ids2.emplace(image.ImageId(), new_image_id);
-      const auto keypoints = database2.ReadKeypoints(image.ImageId());
-      const auto descriptors = database2.ReadDescriptors(image.ImageId());
-      merged_database->WriteKeypoints(new_image_id, keypoints);
-      merged_database->WriteDescriptors(new_image_id, descriptors);
-      if (database2.ExistsPosePrior(image.ImageId())) {
-        merged_database->WritePosePrior(
-            new_image_id, database2.ReadPosePrior(image.ImageId()));
-      }
-    }
-
-    // Merge the frames.
-
-    auto update_frame =
-        [](const Frame& frame,
-           const std::unordered_map<camera_t, camera_t>& new_camera_ids,
-           const std::unordered_map<image_t, image_t>& new_image_ids) {
-          Frame updated_frame;
-          updated_frame.SetFrameId(frame.FrameId());
-          updated_frame.SetRigId(frame.RigId());
-          for (data_t data_id : frame.DataIds()) {
-            if (data_id.sensor_id.type == SensorType::CAMERA) {
-              data_id.id = new_image_ids.at(data_id.id);
-              data_id.sensor_id.id = new_camera_ids.at(data_id.sensor_id.id);
-              updated_frame.AddDataId(data_id);
-            } else {
-              std::ostringstream error;
-              error << "Data type not supported: " << data_id.sensor_id.type;
-              throw std::runtime_error(error.str());
-            }
-          }
-          return updated_frame;
-        };
-
-    for (Frame& frame : database1.ReadAllFrames()) {
-      merged_database->WriteFrame(
-          update_frame(frame, new_camera_ids1, new_image_ids1));
-    }
-
-    for (Frame& frame : database2.ReadAllFrames()) {
-      merged_database->WriteFrame(
-          update_frame(frame, new_camera_ids2, new_image_ids2));
-    }
-
-    // Merge the matches.
-
-    for (const auto& matches : database1.ReadAllMatches()) {
-      const auto image_pair = PairIdToImagePair(matches.first);
-
-      const image_t new_image_id1 = new_image_ids1.at(image_pair.first);
-      const image_t new_image_id2 = new_image_ids1.at(image_pair.second);
-
-      merged_database->WriteMatches(
-          new_image_id1, new_image_id2, matches.second);
-    }
-
-    for (const auto& matches : database2.ReadAllMatches()) {
-      const auto image_pair = PairIdToImagePair(matches.first);
-
-      const image_t new_image_id1 = new_image_ids2.at(image_pair.first);
-      const image_t new_image_id2 = new_image_ids2.at(image_pair.second);
-
-      merged_database->WriteMatches(
-          new_image_id1, new_image_id2, matches.second);
-    }
-
-    // Merge the two-view geometries.
-
-    for (const auto& [pair_id, two_view_geometry] :
-         database1.ReadTwoViewGeometries()) {
-      const auto image_pair = PairIdToImagePair(pair_id);
-
-      const image_t new_image_id1 = new_image_ids1.at(image_pair.first);
-      const image_t new_image_id2 = new_image_ids1.at(image_pair.second);
-
-      merged_database->WriteTwoViewGeometry(
-          new_image_id1, new_image_id2, two_view_geometry);
-    }
-
-    for (const auto& [pair_id, two_view_geometry] :
-         database2.ReadTwoViewGeometries()) {
-      const auto image_pair = PairIdToImagePair(pair_id);
-
-      const image_t new_image_id1 = new_image_ids2.at(image_pair.first);
-      const image_t new_image_id2 = new_image_ids2.at(image_pair.second);
-
-      merged_database->WriteTwoViewGeometry(
-          new_image_id1, new_image_id2, two_view_geometry);
-    }
-  }
-
   void BeginTransaction() const override {
     SQLITE3_EXEC(THROW_CHECK_NOTNULL(database_), "BEGIN TRANSACTION", nullptr);
   }
@@ -1577,11 +1475,11 @@ class SqliteDatabase : public Database {
   void PrepareSQLStatements() {
     sql_stmts_.clear();
 
-    auto prepare_sql_stmt = [this](const std::string_view sql,
+    auto prepare_sql_stmt = [this](const std::string& sql,
                                    sqlite3_stmt** sql_stmt) {
       THROW_CHECK_NOTNULL(database_);
       VLOG(3) << "Preparing SQL statement: " << sql;
-      SQLITE3_CALL(sqlite3_prepare_v2(database_, sql.data(), -1, sql_stmt, 0));
+      SQLITE3_CALL(sqlite3_prepare_v2(database_, sql.c_str(), -1, sql_stmt, 0));
       sql_stmts_.push_back(sql_stmt);
     };
 
@@ -1618,31 +1516,6 @@ class SqliteDatabase : public Database {
                      &sql_stmt_exists_two_view_geometry_);
 
     //////////////////////////////////////////////////////////////////////////////
-    // add_*
-    //////////////////////////////////////////////////////////////////////////////
-    prepare_sql_stmt(
-        "INSERT INTO rigs(rig_id, ref_sensor_id, ref_sensor_type) "
-        "VALUES(?, ?, ?);",
-        &sql_stmt_add_rig_);
-    prepare_sql_stmt(
-        "INSERT INTO rig_sensors(rig_id, sensor_id, sensor_type, "
-        "sensor_from_rig) VALUES(?, ?, ?, ?);",
-        &sql_stmt_add_rig_sensor_);
-    prepare_sql_stmt(
-        "INSERT INTO cameras(camera_id, model, width, height, params, "
-        "prior_focal_length) VALUES(?, ?, ?, ?, ?, ?);",
-        &sql_stmt_add_camera_);
-    prepare_sql_stmt("INSERT INTO frames(frame_id, rig_id) VALUES(?, ?);",
-                     &sql_stmt_add_frame_);
-    prepare_sql_stmt(
-        "INSERT INTO frame_data(frame_id, data_id, sensor_id, sensor_type) "
-        "VALUES(?, ?, ?, ?);",
-        &sql_stmt_add_frame_data_);
-    prepare_sql_stmt(
-        "INSERT INTO images(image_id, name, camera_id) VALUES(?, ?, ?);",
-        &sql_stmt_add_image_);
-
-    //////////////////////////////////////////////////////////////////////////////
     // update_*
     //////////////////////////////////////////////////////////////////////////////
     prepare_sql_stmt(
@@ -1660,6 +1533,9 @@ class SqliteDatabase : public Database {
         "UPDATE pose_priors SET position=?, coordinate_system=?, "
         "position_covariance=? WHERE image_id=?;",
         &sql_stmt_update_pose_prior_);
+    prepare_sql_stmt(
+        "UPDATE keypoints SET rows=?, cols=?, data=? WHERE image_id=?;",
+        &sql_stmt_update_keypoints_);
 
     //////////////////////////////////////////////////////////////////////////////
     // read_*
@@ -1704,11 +1580,27 @@ class SqliteDatabase : public Database {
         "WHERE frames.frame_id = ? "
         "ORDER BY frames.frame_id;",
         &sql_stmt_read_frame_);
-    prepare_sql_stmt("SELECT * FROM images WHERE image_id = ?;",
-                     &sql_stmt_read_image_id_);
-    prepare_sql_stmt("SELECT * FROM images;", &sql_stmt_read_images_);
-    prepare_sql_stmt("SELECT * FROM images WHERE name = ?;",
-                     &sql_stmt_read_image_with_name_);
+    prepare_sql_stmt(
+        StringPrintf("SELECT images.image_id, images.name, images.camera_id, "
+                     "frame_data.frame_id FROM images LEFT JOIN frame_data ON "
+                     "images.image_id = frame_data.data_id AND "
+                     "frame_data.sensor_type = %d WHERE images.image_id = ?;",
+                     SensorType::CAMERA),
+        &sql_stmt_read_image_id_);
+    prepare_sql_stmt(
+        StringPrintf("SELECT images.image_id, images.name, images.camera_id, "
+                     "frame_data.frame_id FROM images LEFT JOIN frame_data ON "
+                     "images.image_id = frame_data.data_id AND "
+                     "frame_data.sensor_type = %d WHERE images.name = ?;",
+                     SensorType::CAMERA),
+        &sql_stmt_read_image_with_name_);
+    prepare_sql_stmt(
+        StringPrintf("SELECT images.image_id, images.name, images.camera_id, "
+                     "frame_data.frame_id FROM images LEFT JOIN frame_data ON "
+                     "images.image_id = frame_data.data_id AND "
+                     "frame_data.sensor_type = %d;",
+                     SensorType::CAMERA),
+        &sql_stmt_read_images_);
     prepare_sql_stmt("SELECT * FROM pose_priors WHERE image_id = ?;",
                      &sql_stmt_read_pose_prior_);
     prepare_sql_stmt(
@@ -1736,6 +1628,27 @@ class SqliteDatabase : public Database {
     //////////////////////////////////////////////////////////////////////////////
     // write_*
     //////////////////////////////////////////////////////////////////////////////
+    prepare_sql_stmt(
+        "INSERT INTO rigs(rig_id, ref_sensor_id, ref_sensor_type) "
+        "VALUES(?, ?, ?);",
+        &sql_stmt_write_rig_);
+    prepare_sql_stmt(
+        "INSERT INTO rig_sensors(rig_id, sensor_id, sensor_type, "
+        "sensor_from_rig) VALUES(?, ?, ?, ?);",
+        &sql_stmt_write_rig_sensor_);
+    prepare_sql_stmt(
+        "INSERT INTO cameras(camera_id, model, width, height, params, "
+        "prior_focal_length) VALUES(?, ?, ?, ?, ?, ?);",
+        &sql_stmt_write_camera_);
+    prepare_sql_stmt("INSERT INTO frames(frame_id, rig_id) VALUES(?, ?);",
+                     &sql_stmt_write_frame_);
+    prepare_sql_stmt(
+        "INSERT INTO frame_data(frame_id, data_id, sensor_id, sensor_type) "
+        "VALUES(?, ?, ?, ?);",
+        &sql_stmt_write_frame_data_);
+    prepare_sql_stmt(
+        "INSERT INTO images(image_id, name, camera_id) VALUES(?, ?, ?);",
+        &sql_stmt_write_image_);
     prepare_sql_stmt(
         "INSERT INTO pose_priors(image_id, position, coordinate_system, "
         "position_covariance) VALUES(?, ?, ?, ?);",
@@ -2178,20 +2091,13 @@ class SqliteDatabase : public Database {
   sqlite3_stmt* sql_stmt_exists_matches_ = nullptr;
   sqlite3_stmt* sql_stmt_exists_two_view_geometry_ = nullptr;
 
-  // add_*
-  sqlite3_stmt* sql_stmt_add_rig_ = nullptr;
-  sqlite3_stmt* sql_stmt_add_rig_sensor_ = nullptr;
-  sqlite3_stmt* sql_stmt_add_camera_ = nullptr;
-  sqlite3_stmt* sql_stmt_add_frame_ = nullptr;
-  sqlite3_stmt* sql_stmt_add_frame_data_ = nullptr;
-  sqlite3_stmt* sql_stmt_add_image_ = nullptr;
-
   // update_*
   sqlite3_stmt* sql_stmt_update_rig_ = nullptr;
   sqlite3_stmt* sql_stmt_update_camera_ = nullptr;
   sqlite3_stmt* sql_stmt_update_frame_ = nullptr;
   sqlite3_stmt* sql_stmt_update_image_ = nullptr;
   sqlite3_stmt* sql_stmt_update_pose_prior_ = nullptr;
+  sqlite3_stmt* sql_stmt_update_keypoints_ = nullptr;
 
   // read_*
   sqlite3_stmt* sql_stmt_read_rig_ = nullptr;
@@ -2216,6 +2122,12 @@ class SqliteDatabase : public Database {
   sqlite3_stmt* sql_stmt_read_two_view_geometry_num_inliers_ = nullptr;
 
   // write_*
+  sqlite3_stmt* sql_stmt_write_rig_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_rig_sensor_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_camera_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_frame_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_frame_data_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_image_ = nullptr;
   sqlite3_stmt* sql_stmt_write_pose_prior_ = nullptr;
   sqlite3_stmt* sql_stmt_write_keypoints_ = nullptr;
   sqlite3_stmt* sql_stmt_write_descriptors_ = nullptr;

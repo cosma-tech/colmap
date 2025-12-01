@@ -241,11 +241,19 @@ TEST_P(ParameterizedDatabaseTests, Image) {
   Camera camera = Camera::CreateFromModelName(
       kInvalidCameraId, "SIMPLE_PINHOLE", 1.0, 1, 1);
   camera.camera_id = database->WriteCamera(camera);
+  Rig rig;
+  rig.AddRefSensor(sensor_t(SensorType::CAMERA, camera.camera_id));
+  rig.SetRigId(database->WriteRig(rig));
   EXPECT_EQ(database->NumImages(), 0);
   Image image;
   image.SetName("test");
   image.SetCameraId(camera.camera_id);
   image.SetImageId(database->WriteImage(image));
+  Frame frame;
+  frame.SetRigId(rig.RigId());
+  frame.AddDataId(image.DataId());
+  frame.SetFrameId(database->WriteFrame(frame));
+  image.SetFrameId(frame.FrameId());
   EXPECT_EQ(database->NumImages(), 1);
   EXPECT_TRUE(database->ExistsImage(image.ImageId()));
   EXPECT_EQ(database->ReadImage(image.ImageId()), image);
@@ -257,7 +265,10 @@ TEST_P(ParameterizedDatabaseTests, Image) {
   Image image2 = image;
   image2.SetName("test2");
   image2.SetImageId(image.ImageId() + 1);
-  database->WriteImage(image2, true);
+  frame.AddDataId(image2.DataId());
+  database->UpdateFrame(frame);
+  EXPECT_EQ(database->WriteImage(image2, /*use_image_id=*/true),
+            image2.ImageId());
   EXPECT_EQ(database->NumImages(), 2);
   EXPECT_TRUE(database->ExistsImage(image.ImageId()));
   EXPECT_TRUE(database->ExistsImage(image2.ImageId()));
@@ -312,27 +323,21 @@ TEST_P(ParameterizedDatabaseTests, Keypoints) {
   EXPECT_EQ(database->NumKeypointsForImage(image.ImageId()), 0);
   const FeatureKeypoints keypoints = FeatureKeypoints(10);
   database->WriteKeypoints(image.ImageId(), keypoints);
-  const FeatureKeypoints keypoints_read =
-      database->ReadKeypoints(image.ImageId());
-  EXPECT_EQ(keypoints.size(), keypoints_read.size());
-  for (size_t i = 0; i < keypoints.size(); ++i) {
-    EXPECT_EQ(keypoints[i].x, keypoints_read[i].x);
-    EXPECT_EQ(keypoints[i].y, keypoints_read[i].y);
-    EXPECT_EQ(keypoints[i].a11, keypoints_read[i].a11);
-    EXPECT_EQ(keypoints[i].a12, keypoints_read[i].a12);
-    EXPECT_EQ(keypoints[i].a21, keypoints_read[i].a21);
-    EXPECT_EQ(keypoints[i].a22, keypoints_read[i].a22);
-  }
+  EXPECT_EQ(keypoints, database->ReadKeypoints(image.ImageId()));
   EXPECT_EQ(database->NumKeypoints(), 10);
   EXPECT_EQ(database->MaxNumKeypoints(), 10);
   EXPECT_EQ(database->NumKeypointsForImage(image.ImageId()), 10);
-  const FeatureKeypoints keypoints2 = FeatureKeypoints(20);
+  FeatureKeypoints keypoints2 = FeatureKeypoints(20);
   image.SetName("test2");
   image.SetImageId(database->WriteImage(image));
   database->WriteKeypoints(image.ImageId(), keypoints2);
+  EXPECT_EQ(keypoints2, database->ReadKeypoints(image.ImageId()));
   EXPECT_EQ(database->NumKeypoints(), 30);
   EXPECT_EQ(database->MaxNumKeypoints(), 20);
   EXPECT_EQ(database->NumKeypointsForImage(image.ImageId()), 20);
+  keypoints2[0].x += 1;
+  database->UpdateKeypoints(image.ImageId(), keypoints2);
+  EXPECT_EQ(keypoints2, database->ReadKeypoints(image.ImageId()));
   database->ClearKeypoints();
   EXPECT_EQ(database->NumKeypoints(), 0);
   EXPECT_EQ(database->MaxNumKeypoints(), 0);
@@ -517,11 +522,21 @@ TEST_P(ParameterizedDatabaseTests, TwoViewGeometry) {
             two_view_geometry.inlier_matches.size());
   EXPECT_EQ(database->NumInlierMatches(), 1000);
   database->DeleteInlierMatches(image_id1, image_id2);
+  EXPECT_TRUE(database->ExistsTwoViewGeometry(image_id1, image_id2));
+  EXPECT_EQ(database->NumInlierMatches(), 0);
+  database->DeleteTwoViewGeometry(image_id1, image_id2);
+  EXPECT_FALSE(database->ExistsTwoViewGeometry(image_id1, image_id2));
   EXPECT_EQ(database->NumInlierMatches(), 0);
   database->WriteTwoViewGeometry(image_id1, image_id2, two_view_geometry);
+  EXPECT_ANY_THROW(
+      database->WriteTwoViewGeometry(image_id1, image_id2, two_view_geometry));
   EXPECT_EQ(database->NumInlierMatches(), 1000);
   database->ClearTwoViewGeometries();
   EXPECT_EQ(database->NumInlierMatches(), 0);
+  two_view_geometry.inlier_matches.clear();
+  database->WriteTwoViewGeometry(image_id1, image_id2, two_view_geometry);
+  EXPECT_EQ(two_view_geometry.cam2_from_cam1,
+            database->ReadTwoViewGeometry(image_id1, image_id2).cam2_from_cam1);
 }
 
 TEST_P(ParameterizedDatabaseTests, Merge) {

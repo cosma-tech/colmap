@@ -86,7 +86,7 @@ void Database::Merge(const Database& database1,
           ref_sensor_id.id = new_camera_ids.at(ref_sensor_id.id);
         }
         updated_rig.AddRefSensor(ref_sensor_id);
-        for (const auto& [sensor_id, sensor_from_rig] : rig.Sensors()) {
+        for (const auto& [sensor_id, sensor_from_rig] : rig.NonRefSensors()) {
           sensor_t updated_sensor_id = sensor_id;
           if (sensor_id.type == SensorType::CAMERA) {
             updated_sensor_id.id = new_camera_ids.at(sensor_id.id);
@@ -115,6 +115,7 @@ void Database::Merge(const Database& database1,
   std::unordered_map<image_t, image_t> new_image_ids1;
   for (auto& image : database1.ReadAllImages()) {
     image.SetCameraId(new_camera_ids1.at(image.CameraId()));
+    image.SetFrameId(kInvalidFrameId);
     THROW_CHECK(!merged_database->ExistsImageWithName(image.Name()))
         << "The two databases must not contain images with the same name, but "
            "there are images with name "
@@ -134,6 +135,7 @@ void Database::Merge(const Database& database1,
   std::unordered_map<image_t, image_t> new_image_ids2;
   for (auto& image : database2.ReadAllImages()) {
     image.SetCameraId(new_camera_ids2.at(image.CameraId()));
+    image.SetFrameId(kInvalidFrameId);
     THROW_CHECK(!merged_database->ExistsImageWithName(image.Name()))
         << "The two databases must not contain images with the same name, but "
            "there are images with name "
