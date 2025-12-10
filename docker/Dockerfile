@@ -47,10 +47,8 @@ RUN apt-get update && \
 RUN mkdir -p /usr/include/opencv4
 
 # Build and install COLMAP.
-RUN git clone https://github.com/colmap/colmap.git
+COPY . /colmap
 RUN cd colmap && \
-    git fetch https://github.com/colmap/colmap.git ${COLMAP_GIT_COMMIT} && \
-    git checkout FETCH_HEAD && \
     mkdir build && \
     cd build && \
     cmake .. \
