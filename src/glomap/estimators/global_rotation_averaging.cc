@@ -494,7 +494,7 @@ bool RotationEstimator::SolveL1Regression(
   colmap::LeastAbsoluteDeviationSolver::Options l1_solver_options;
   l1_solver_options.max_num_iterations = 10;
   l1_solver_options.solver_type = colmap::LeastAbsoluteDeviationSolver::
-      Options::SolverType::SupernodalCholmodLLT;
+      Options::SolverType::SimplicialLLT;
 
   const Eigen::SparseMatrix<double> A =
       weights_.matrix().asDiagonal() * sparse_matrix_;
@@ -556,7 +556,7 @@ bool RotationEstimator::SolveIRLS(const ViewGraph& view_graph,
                                   std::unordered_map<frame_t, Frame>& frames,
                                   std::unordered_map<image_t, Image>& images) {
   // TODO: Determine what is the best solver for this part
-  Eigen::CholmodSupernodalLLT<Eigen::SparseMatrix<double>> llt;
+  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> llt;
 
   llt.analyzePattern(sparse_matrix_.transpose() * sparse_matrix_);
 
