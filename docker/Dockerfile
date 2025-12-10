@@ -47,10 +47,8 @@ RUN apt-get update && \
 RUN mkdir -p /usr/include/opencv4
 
 # Build and install COLMAP.
-RUN git clone https://github.com/colmap/colmap.git
+COPY . /colmap
 RUN cd colmap && \
-    git fetch https://github.com/colmap/colmap.git ${COLMAP_GIT_COMMIT} && \
-    git checkout FETCH_HEAD && \
     mkdir build && \
     cd build && \
     cmake .. \
@@ -90,9 +88,29 @@ RUN apt-get update && \
         libmkl-locale \
         libmkl-intel-lp64 \
         libmkl-intel-thread \
-        libmkl-core && \
+        libmkl-core \
+        python3 \
+        python3-pip \
+        python3-venv && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install flyte python dependencies.
+RUN pip install --no-cache-dir \
+    flytekit==1.15.0 \
+    flytekitplugins-kfpytorch==1.15.0 \
+    pandas==2.3.3 \
+    pyarrow==20.0.0 \
+    loguru==0.7.3 \
+    kubernetes==34.1.0 \
+    boto3==1.40.70 \
+    findimports==2.7.0 \
+    networkx==3.6 \
+    pyparsing==3.2.5
 
 # Copy all files from /colmap-install/ in the builder stage to /usr/local/ in
 # the runtime stage. This simulates installing COLMAP in the default location
