@@ -18,6 +18,7 @@ int RunGlobalMapper(int argc, char** argv) {
   std::string output_path;
 
   std::string image_path = "";
+  std::string gravity_path = "";
   std::string constraint_type = "ONLY_POINTS";
   std::string output_format = "bin";
 
@@ -25,6 +26,7 @@ int RunGlobalMapper(int argc, char** argv) {
   options.AddRequiredOption("database_path", &database_path);
   options.AddRequiredOption("output_path", &output_path);
   options.AddDefaultOption("image_path", &image_path);
+  options.AddDefaultOption("gravity_path", &gravity_path);
   options.AddDefaultOption("constraint_type",
                            &constraint_type,
                            "{ONLY_POINTS, ONLY_CAMERAS, "
@@ -36,6 +38,11 @@ int RunGlobalMapper(int argc, char** argv) {
 
   if (!colmap::ExistsFile(database_path)) {
     LOG(ERROR) << "`database_path` is not a file";
+    return EXIT_FAILURE;
+  }
+
+  if (gravity_path != "" && !colmap::ExistsFile(gravity_path)) {
+    LOG(ERROR) << "`gravity_path` is not a file";
     return EXIT_FAILURE;
   }
 
@@ -72,6 +79,11 @@ int RunGlobalMapper(int argc, char** argv) {
 
   auto database = colmap::Database::Open(database_path);
   ConvertDatabaseToGlomap(*database, view_graph, rigs, cameras, frames, images);
+
+  if (gravity_path != "") {
+    ReadGravity(gravity_path, images);
+    options.mapper->opt_ra.use_gravity = true;
+  }
 
   if (view_graph.image_pairs.empty()) {
     LOG(ERROR) << "Can't continue without image pairs";
