@@ -53,3 +53,6 @@ vcpkg_installed/
 # backup files
 *~
 *.orig
+
+# Docker
+build-image.sh
