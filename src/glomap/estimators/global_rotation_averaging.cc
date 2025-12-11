@@ -1,44 +1,32 @@
 #include "global_rotation_averaging.h"
 
 #include "colmap/geometry/pose.h"
-#include "colmap/optim/least_absolute_deviations.h"
 
 #include "glomap/estimators/rotation_initializer.h"
+#include "glomap/math/l1_solver.h"
 #include "glomap/math/tree.h"
 
 #include <iostream>
 #include <queue>
 
-#include <Eigen/CholmodSupport>
-#include <Eigen/SparseCholesky>
-
 namespace glomap {
 namespace {
 
-double RelAngleError(std::mt19937& rng,
-                     double angle_12,
-                     double angle_1,
-                     double angle_2) {
+double RelAngleError(double angle_12, double angle_1, double angle_2) {
   double est = (angle_2 - angle_1) - angle_12;
+  constexpr double TWO_PI = 2 * 3.141592653589793238462643383279502884L;
 
-  while (est >= EIGEN_PI) {
-    est -= 2 * EIGEN_PI;
-  }
-  while (est < -EIGEN_PI) {
-    est += 2 * EIGEN_PI;
-  }
+  while (est >= EIGEN_PI) est -= TWO_PI;
+
+  while (est < -EIGEN_PI) est += TWO_PI;
 
   // Inject random noise if the angle is too close to the boundary to break the
   // possible balance at the local minima
-  constexpr double kEps = 0.01;
-  if (std::abs(est) > EIGEN_PI - kEps) {
-    std::uniform_real_distribution<double> dist(0.0, kEps);
-    const double jitter = dist(rng);
-    if (est < 0) {
-      est += jitter;
-    } else {
-      est -= jitter;
-    }
+  if (est > EIGEN_PI - 0.01 || est < -EIGEN_PI + 0.01) {
+    if (est < 0)
+      est += (rand() % 1000) / 1000.0 * 0.01;
+    else
+      est -= (rand() % 1000) / 1000.0 * 0.01;
   }
 
   return est;
@@ -491,15 +479,11 @@ bool RotationEstimator::SolveL1Regression(
     const ViewGraph& view_graph,
     std::unordered_map<frame_t, Frame>& frames,
     std::unordered_map<image_t, Image>& images) {
-  colmap::LeastAbsoluteDeviationSolver::Options l1_solver_options;
-  l1_solver_options.max_num_iterations = 10;
-  l1_solver_options.solver_type = colmap::LeastAbsoluteDeviationSolver::
-      Options::SolverType::SimplicialLLT;
+  L1SolverOptions opt_l1_solver;
+  opt_l1_solver.max_num_iterations = 100;
 
-  const Eigen::SparseMatrix<double> A =
-      weights_.matrix().asDiagonal() * sparse_matrix_;
-
-  colmap::LeastAbsoluteDeviationSolver l1_solver(l1_solver_options, A);
+  L1Solver<Eigen::SparseMatrix<double>> l1_solver(
+      opt_l1_solver, weights_.matrix().asDiagonal() * sparse_matrix_);
   double last_norm = 0;
   double curr_norm = 0;
 
@@ -545,8 +529,8 @@ bool RotationEstimator::SolveL1Regression(
       iteration++;
       break;
     }
-    l1_solver_options.max_num_iterations =
-        std::min(l1_solver_options.max_num_iterations * 2, 100);
+    opt_l1_solver.max_num_iterations =
+        std::min(opt_l1_solver.max_num_iterations * 2, 100);
   }
   VLOG(2) << "L1 ADMM total iteration: " << iteration;
   return true;
@@ -704,8 +688,6 @@ void RotationEstimator::UpdateGlobalRotations(
 
 void RotationEstimator::ComputeResiduals(
     const ViewGraph& view_graph, std::unordered_map<image_t, Image>& images) {
-  std::mt19937 rng(std::random_device{}());
-
   int curr_pos = 0;
   for (const auto& [pair_id, pair_info] : rel_temp_info_) {
     const image_t image_id1 = view_graph.image_pairs.at(pair_id).image_id1;
@@ -715,8 +697,7 @@ void RotationEstimator::ComputeResiduals(
 
     if (pair_info.has_gravity) {
       tangent_space_residual_[pair_info.index] =
-          (RelAngleError(rng,
-                         pair_info.angle_rel,
+          (RelAngleError(pair_info.angle_rel,
                          rotation_estimated_[image_id_to_idx_[image_id1]],
                          rotation_estimated_[image_id_to_idx_[image_id2]]));
     } else {
@@ -772,7 +753,7 @@ double RotationEstimator::ComputeAverageStepSize(
     const std::unordered_map<frame_t, Frame>& frames) {
   double total_update = 0;
   for (const auto& [frame_id, frame] : frames) {
-    if (frames.at(frame_id).is_registered) continue;
+    if (!frames.at(frame_id).is_registered) continue;
 
     if (options_.use_gravity && frame.HasGravity()) {
       total_update += std::abs(tangent_space_step_[frame_id_to_idx_[frame_id]]);
