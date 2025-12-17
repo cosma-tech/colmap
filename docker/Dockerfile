@@ -110,7 +110,8 @@ RUN pip install --no-cache-dir \
     boto3==1.40.70 \
     findimports==2.7.0 \
     networkx==3.6 \
-    pyparsing==3.2.5
+    pyparsing==3.2.5 \
+    pcyolmap
 
 # Copy all files from /colmap-install/ in the builder stage to /usr/local/ in
 # the runtime stage. This simulates installing COLMAP in the default location
