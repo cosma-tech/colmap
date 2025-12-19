@@ -181,6 +181,7 @@ if(CUDA_ENABLED AND CUDA_FOUND)
     endif()
 
     list(APPEND COLMAP_COMPILE_DEFINITIONS COLMAP_CUDA_ENABLED)
+    # list(APPEND COLMAP_COMPILE_DEFINITIONS GLOMAP_CUDA_ENABLED)
 
     # Do not show warnings if the architectures are deprecated.
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-deprecated-gpu-targets")
