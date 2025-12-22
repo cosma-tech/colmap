@@ -88,6 +88,7 @@ RUN apt-get update && \
         libmkl-intel-lp64 \
         libmkl-intel-thread \
         libmkl-core \
+        sqlite3 \
         python3 \
         python3-pip \
         python3-venv && \
