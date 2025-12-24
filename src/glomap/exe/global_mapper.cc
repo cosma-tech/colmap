@@ -123,12 +123,14 @@ int RunGlobalMapperResume(int argc, char** argv) {
   std::string input_path;
   std::string output_path;
   std::string image_path = "";
+  std::string gravity_path = "";
   std::string output_format = "bin";
 
   OptionManager options;
   options.AddRequiredOption("input_path", &input_path);
   options.AddRequiredOption("output_path", &output_path);
   options.AddDefaultOption("image_path", &image_path);
+  options.AddDefaultOption("gravity_path", &gravity_path);
   options.AddDefaultOption("output_format", &output_format, "{bin, txt}");
   options.AddGlobalMapperResumeFullOptions();
 
@@ -136,6 +138,11 @@ int RunGlobalMapperResume(int argc, char** argv) {
 
   if (!colmap::ExistsDir(input_path)) {
     LOG(ERROR) << "`input_path` is not a directory";
+    return EXIT_FAILURE;
+  }
+
+  if (gravity_path != "" && !colmap::ExistsFile(gravity_path)) {
+    LOG(ERROR) << "`gravity_path` is not a file";
     return EXIT_FAILURE;
   }
 
@@ -157,6 +164,10 @@ int RunGlobalMapperResume(int argc, char** argv) {
   colmap::Reconstruction reconstruction;
   reconstruction.Read(input_path);
   ConvertColmapToGlomap(reconstruction, rigs, cameras, frames, images, tracks);
+
+  if (gravity_path != "") {
+    ReadGravity(gravity_path, images);
+  }
 
   GlobalMapper global_mapper(*options.mapper);
 
