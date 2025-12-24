@@ -26,6 +26,10 @@ struct BundleAdjusterOptions : public OptimizationBaseOptions {
   // Constrain the minimum number of views per track
   int min_num_view_per_track = 3;
 
+  // Gravity prior options
+  bool use_gravity_priors = false;
+  double gravity_prior_weight = 100000.0;
+
   BundleAdjusterOptions() : OptimizationBaseOptions() {
     thres_loss_function = 1.;
     solver_options.max_num_iterations = 200;
@@ -62,6 +66,11 @@ class BundleAdjuster {
       std::unordered_map<frame_t, Frame>& frames,
       std::unordered_map<image_t, Image>& images,
       std::unordered_map<point3D_t, Point3D>& tracks);
+
+  // Add gravity priors to the problem
+  void AddGravityPriors(std::unordered_map<rig_t, Rig>& rigs,
+                        std::unordered_map<frame_t, Frame>& frames,
+                        std::unordered_map<image_t, Image>& images);
 
   // Set the parameter groups
   void AddCamerasAndPointsToParameterGroups(

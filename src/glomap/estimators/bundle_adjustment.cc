@@ -5,6 +5,7 @@
 #include "colmap/sensor/models.h"
 #include "colmap/util/cuda.h"
 #include "colmap/util/misc.h"
+#include "glomap/estimators/gravity_cost_function.h"
 
 namespace glomap {
 
@@ -29,6 +30,11 @@ bool BundleAdjuster::Solve(
 
   // Add the constraints that the point tracks impose on the problem
   AddPointToCameraConstraints(rigs, cameras, frames, images, tracks);
+
+  // Add gravity priors if enabled
+  if (options_.use_gravity_priors) {
+    AddGravityPriors(rigs, frames, images);
+  }
 
   // Add the cameras and points to the parameter groups for schur-based
   // optimization
@@ -314,6 +320,45 @@ void BundleAdjuster::ParameterizeVariables(
       }
     }
   }
+}
+
+void BundleAdjuster::AddGravityPriors(
+    std::unordered_map<rig_t, Rig>& rigs,
+    std::unordered_map<frame_t, Frame>& frames,
+    std::unordered_map<image_t, Image>& images) {
+  int num_gravity_priors = 0;
+
+  for (auto& [frame_id, frame] : frames) {
+    // Only add gravity priors for frames that have a pose, gravity info,
+    // and are already in the optimization
+    if (!frame.HasPose() || !frame.HasGravity() ||
+        !problem_->HasParameterBlock(
+            frame.RigFromWorld().rotation.coeffs().data())) {
+      continue;
+    }
+
+    // Get the gravity vector in rig frame
+    const Eigen::Vector3d gravity = frame.gravity_info.GetGravity();
+
+    // Create a cost function for this gravity prior
+    ceres::CostFunction* cost_function =
+        GravityAlignmentCostFunctor::Create(gravity);
+
+    // Add residual block with weighting
+    ceres::LossFunction* gravity_loss_function =
+        new ceres::ScaledLoss(nullptr,
+                              options_.gravity_prior_weight,
+                              ceres::TAKE_OWNERSHIP);
+
+    problem_->AddResidualBlock(
+        cost_function,
+        gravity_loss_function,
+        frame.RigFromWorld().rotation.coeffs().data());
+
+    num_gravity_priors++;
+  }
+
+  LOG(INFO) << "Added " << num_gravity_priors << " gravity priors";
 }
 
 }  // namespace glomap

@@ -231,6 +231,10 @@ void OptionManager::AddBundleAdjusterOptions() {
   AddAndRegisterDefaultOption(
       "BundleAdjustment.function_tolerance",
       &mapper->opt_ba.solver_options.function_tolerance);
+  AddAndRegisterDefaultOption("BundleAdjustment.use_gravity_priors",
+                              &mapper->opt_ba.use_gravity_priors);
+  AddAndRegisterDefaultOption("BundleAdjustment.gravity_prior_weight",
+                              &mapper->opt_ba.gravity_prior_weight);
 }
 void OptionManager::AddTriangulatorOptions() {
   if (added_triangulation_options_) {
