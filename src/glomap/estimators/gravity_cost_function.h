@@ -19,11 +19,8 @@ class GravityAlignmentCostFunctor
   template <typename T>
   bool operator()(const T* const cam_from_world_rotation, T* residuals) const {
     // Convert quaternion to rotation matrix
-    const Eigen::Quaternion<T> quat(cam_from_world_rotation[0],
-                                    cam_from_world_rotation[1],
-                                    cam_from_world_rotation[2],
-                                    cam_from_world_rotation[3]);
-    const Eigen::Matrix<T, 3, 3> rotation_matrix = quat.toRotationMatrix();
+    const Eigen::Matrix<T, 3, 3> rotation_matrix =
+        colmap::EigenQuaternionMap<T>(cam_from_world_rotation).toRotationMatrix();
 
     // Extract the second column (down direction in camera frame)
     const Eigen::Matrix<T, 3, 1> cam_down = rotation_matrix.col(1);
