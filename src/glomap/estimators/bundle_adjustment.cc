@@ -31,8 +31,8 @@ bool BundleAdjuster::Solve(
   // Add the constraints that the point tracks impose on the problem
   AddPointToCameraConstraints(rigs, cameras, frames, images, tracks);
 
-  // Add gravity priors if enabled
-  if (options_.use_gravity_priors) {
+  // Add gravity priors if enabled and rotations are being optimized
+  if (options_.use_gravity_priors && options_.optimize_rotations) {
     AddGravityPriors(rigs, frames, images);
   }
 
@@ -358,7 +358,7 @@ void BundleAdjuster::AddGravityPriors(
     num_gravity_priors++;
   }
 
-  LOG(INFO) << "Added " << num_gravity_priors << " gravity priors";
+  LOG(INFO) << "Added " << num_gravity_priors << " gravity priors to bundle adjustment problem";
 }
 
 }  // namespace glomap
