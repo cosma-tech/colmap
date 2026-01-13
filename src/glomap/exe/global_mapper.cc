@@ -166,7 +166,8 @@ int RunGlobalMapperResume(int argc, char** argv) {
   ConvertColmapToGlomap(reconstruction, rigs, cameras, frames, images, tracks);
 
   if (gravity_path != "") {
-    ReadGravity(gravity_path, images);
+    // Don't overwrite existing rotations when resuming from a reconstruction
+    ReadGravity(gravity_path, images, false);
   }
 
   GlobalMapper global_mapper(*options.mapper);

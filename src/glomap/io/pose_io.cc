@@ -133,7 +133,8 @@ void ReadRelWeight(const std::string& file_path,
 // TODO: now, we only store 1 single gravity per rig.
 // for ease of implementation, we only store from the image with trivial frame
 void ReadGravity(const std::string& gravity_path,
-                 std::unordered_map<image_t, Image>& images) {
+                 std::unordered_map<image_t, Image>& images,
+                 bool overwrite_rotations) {
   std::unordered_map<std::string, image_t> name_idx;
   for (const auto& [image_id, image] : images) {
     name_idx[image.file_name] = image_id;
@@ -164,11 +165,13 @@ void ReadGravity(const std::string& gravity_path,
       counter++;
       if (images[ite->second].IsRefInFrame()) {
         images[ite->second].frame_ptr->gravity_info.SetGravity(gravity);
-        Rigid3d& cam_from_world = images[ite->second].frame_ptr->RigFromWorld();
-        // Set the rotation from the camera to the world
-        // Make sure the initialization is aligned with the gravity
-        cam_from_world.rotation = Eigen::Quaterniond(
-            images[ite->second].frame_ptr->gravity_info.GetRAlign());
+        if (overwrite_rotations) {
+          Rigid3d& cam_from_world = images[ite->second].frame_ptr->RigFromWorld();
+          // Set the rotation from the camera to the world
+          // Make sure the initialization is aligned with the gravity
+          cam_from_world.rotation = Eigen::Quaterniond(
+              images[ite->second].frame_ptr->gravity_info.GetRAlign());
+        }
       }
     }
   }
