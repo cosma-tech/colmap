@@ -28,7 +28,7 @@ struct BundleAdjusterOptions : public OptimizationBaseOptions {
 
   // Gravity prior options
   bool use_gravity_priors = false;
-  double gravity_prior_weight = 1.0;
+  double gravity_prior_weight = 1000000000.0;
 
   BundleAdjusterOptions() : OptimizationBaseOptions() {
     thres_loss_function = 1.;
