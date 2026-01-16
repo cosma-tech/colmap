@@ -81,10 +81,12 @@ class RotationEstimator {
 
   // Estimates the global orientations of all views based on an initial
   // guess. Returns true on successful estimation and false otherwise.
-  bool EstimateRotations(const ViewGraph& view_graph,
-                         std::unordered_map<rig_t, Rig>& rigs,
-                         std::unordered_map<frame_t, Frame>& frames,
-                         std::unordered_map<image_t, Image>& images);
+  bool EstimateRotations(
+      const ViewGraph& view_graph,
+      std::unordered_map<rig_t, Rig>& rigs,
+      std::unordered_map<frame_t, Frame>& frames,
+      std::unordered_map<image_t, Image>& images,
+      const std::unordered_map<frame_t, int>& frame_to_component);
 
  protected:
   // Initialize the rotation from the maximum spanning tree
@@ -98,10 +100,12 @@ class RotationEstimator {
   // Sets up the sparse linear system such that dR_ij = dR_j - dR_i. This is the
   // first-order approximation of the angle-axis rotations. This should only be
   // called once.
-  void SetupLinearSystem(const ViewGraph& view_graph,
-                         std::unordered_map<rig_t, Rig>& rigs,
-                         std::unordered_map<frame_t, Frame>& frames,
-                         std::unordered_map<image_t, Image>& images);
+  void SetupLinearSystem(
+      const ViewGraph& view_graph,
+      std::unordered_map<rig_t, Rig>& rigs,
+      std::unordered_map<frame_t, Frame>& frames,
+      std::unordered_map<image_t, Image>& images,
+      const std::unordered_map<frame_t, int>& frame_to_component);
 
   // Performs the L1 robust loss minimization.
   bool SolveL1Regression(const ViewGraph& view_graph,
@@ -158,12 +162,12 @@ class RotationEstimator {
       camera_id_to_idx_;  // Note: for reference cameras, it does not have this
   std::unordered_map<image_pair_t, ImagePairTempInfo> rel_temp_info_;
 
-  // The fixed camera id. This is used to remove the ambiguity of the linear
-  image_t fixed_camera_id_ = -1;
+  // The fixed camera ids. This is used to remove the ambiguity of the linear system
+  std::unordered_map<int, image_t> fixed_camera_id_per_component_;
 
-  // The fixed camera rotation (if with initialization, it would not be identity
-  // matrix)
-  Eigen::Vector3d fixed_camera_rotation_;
+  // The fixed camera rotation per component (if with initialization, it would
+  // not be identity matrix)
+  std::unordered_map<int, Eigen::Vector3d> fixed_camera_rotation_per_component_;
 
   // The weights for the edges
   Eigen::ArrayXd weights_;

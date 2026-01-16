@@ -153,7 +153,7 @@ TEST(RotationEstimator, WithoutNoise) {
   // right solution (e.g., 180 deg flipped).
   for (const bool use_gravity : {false}) {
     SolveRotationAveraging(
-        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity));
+        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity), 100);
 
     colmap::Reconstruction reconstruction;
     ConvertGlomapToColmap(
@@ -196,7 +196,7 @@ TEST(RotationEstimator, WithoutNoiseWithNoneTrivialKnownRig) {
 
   for (const bool use_gravity : {true, false}) {
     SolveRotationAveraging(
-        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity));
+        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity), 100);
 
     colmap::Reconstruction reconstruction;
     ConvertGlomapToColmap(
@@ -247,7 +247,7 @@ TEST(RotationEstimator, WithoutNoiseWithNoneTrivialUnknownRig) {
   // For unknown rigs, it is not supported to use gravity.
   for (const bool use_gravity : {false}) {
     SolveRotationAveraging(
-        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity));
+        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity), 100);
 
     colmap::Reconstruction reconstruction;
     ConvertGlomapToColmap(
@@ -296,7 +296,7 @@ TEST(RotationEstimator, WithNoiseAndOutliers) {
   // right solution (e.g., 180 deg flipped).
   for (const bool use_gravity : {false}) {
     SolveRotationAveraging(
-        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity));
+        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity), 100);
 
     colmap::Reconstruction reconstruction;
     ConvertGlomapToColmap(
@@ -344,7 +344,7 @@ TEST(RotationEstimator, WithNoiseAndOutliersWithNonTrivialKnownRigs) {
   // right solution (e.g., 180 deg flipped).
   for (const bool use_gravity : {false}) {
     SolveRotationAveraging(
-        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity));
+        view_graph, rigs, frames, images, CreateRATestOptions(use_gravity), 100);
 
     colmap::Reconstruction reconstruction;
     ConvertGlomapToColmap(

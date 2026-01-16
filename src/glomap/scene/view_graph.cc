@@ -95,6 +95,48 @@ int ViewGraph::KeepLargestConnectedComponents(
   return max_img;
 }
 
+std::unordered_map<frame_t, int> ViewGraph::KeepConnectedComponents(
+    std::unordered_map<frame_t, Frame>& frames,
+    std::unordered_map<image_t, Image>& images,
+    int min_num_frames) {
+  const std::vector<std::unordered_set<frame_t>> connected_components =
+      FindConnectedComponents(CreateFrameAdjacencyList(images));
+
+  // Build a map from frame_id to component_id for kept components
+  std::unordered_map<frame_t, int> frame_to_component;
+  
+  // Set all frames to not registered
+  for (auto& [frame_id, frame] : frames) {
+    frame.is_registered = false;
+  }
+
+  // Keep all components that have at least min_num_frames frames
+  for (int comp = 0; comp < connected_components.size(); comp++) {
+    if (connected_components[comp].size() >= min_num_frames) {
+      for (auto frame_id : connected_components[comp]) {
+        frames[frame_id].is_registered = true;
+        frame_to_component[frame_id] = comp;
+      }
+    }
+  }
+
+  // Invalid pairs where either image is not registered or
+  // images are in different components
+  for (auto& [pair_id, image_pair] : image_pairs) {
+    const Image& image1 = images[image_pair.image_id1];
+    const Image& image2 = images[image_pair.image_id2];
+    if (!image1.IsRegistered() || !image2.IsRegistered()) {
+      image_pair.is_valid = false;
+    } else {
+      if (frame_to_component[image1.frame_id] != frame_to_component[image2.frame_id]) {
+        image_pair.is_valid = false;
+      }
+    }
+  }
+
+  return frame_to_component;
+}
+
 int ViewGraph::MarkConnectedComponents(
     std::unordered_map<frame_t, Frame>& frames,
     std::unordered_map<image_t, Image>& images,

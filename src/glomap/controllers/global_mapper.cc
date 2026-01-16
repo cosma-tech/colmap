@@ -71,7 +71,8 @@ bool GlobalMapper::Solve(const colmap::Database& database,
     RelPoseFilter::FilterInlierRatio(
         view_graph, options_.inlier_thresholds.min_inlier_ratio);
 
-    if (view_graph.KeepLargestConnectedComponents(frames, images) == 0) {
+    if (view_graph.KeepConnectedComponents(
+            frames, images, options_.inlier_thresholds.min_component_size).empty()) {
       LOG(ERROR) << "no connected components are found";
       return false;
     }
@@ -93,11 +94,13 @@ bool GlobalMapper::Solve(const colmap::Database& database,
                            rigs,
                            frames,
                            images,
-                           RotationAveragerOptions(options_.opt_ra));
+                           RotationAveragerOptions(options_.opt_ra),
+                           options_.inlier_thresholds.min_component_size);
 
     RelPoseFilter::FilterRotations(
         view_graph, images, options_.inlier_thresholds.max_rotation_error);
-    if (view_graph.KeepLargestConnectedComponents(frames, images) == 0) {
+    if (view_graph.KeepConnectedComponents(
+            frames, images, options_.inlier_thresholds.min_component_size).empty()) {
       LOG(ERROR) << "no connected components are found";
       return false;
     }
@@ -107,18 +110,26 @@ bool GlobalMapper::Solve(const colmap::Database& database,
                                 rigs,
                                 frames,
                                 images,
-                                RotationAveragerOptions(options_.opt_ra))) {
+                                RotationAveragerOptions(options_.opt_ra),
+                                options_.inlier_thresholds.min_component_size)) {
       return false;
     }
     RelPoseFilter::FilterRotations(
         view_graph, images, options_.inlier_thresholds.max_rotation_error);
-    image_t num_img = view_graph.KeepLargestConnectedComponents(frames, images);
-    if (num_img == 0) {
+    frame_to_component = view_graph.KeepConnectedComponents(
+        frames, images, options_.inlier_thresholds.min_component_size);
+    if (frame_to_component.empty()) {
       LOG(ERROR) << "no connected components are found";
       return false;
     }
-    LOG(INFO) << num_img << " / " << images.size()
-              << " images are within the connected component." << '\n';
+
+    // Count number of unique components
+    std::unordered_set<int> unique_components;
+    for (const auto& [frame_id, comp_id] : frame_to_component) {
+      unique_components.insert(comp_id);
+    }
+    LOG(INFO) << frame_to_component.size() << " frames / " << images.size() << " images in "
+              << unique_components.size() << " connected component(s)." << '\n';
 
     run_timer.PrintSeconds();
   }

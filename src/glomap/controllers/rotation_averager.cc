@@ -9,9 +9,10 @@ bool SolveRotationAveraging(ViewGraph& view_graph,
                             std::unordered_map<rig_t, Rig>& rigs,
                             std::unordered_map<frame_t, Frame>& frames,
                             std::unordered_map<image_t, Image>& images,
-                            const RotationAveragerOptions& options) {
-  view_graph.KeepLargestConnectedComponents(frames, images);
-
+                            const RotationAveragerOptions& options,
+                            int min_component_size) {
+  std::unordered_map<frame_t, int> frame_to_component =
+      view_graph.KeepConnectedComponents(frames, images, min_component_size);
   bool solve_1dof_system = options.use_gravity && options.use_stratified;
 
   ViewGraph view_graph_grav;
@@ -53,13 +54,13 @@ bool SolveRotationAveraging(ViewGraph& view_graph,
     // Run the 1dof optimization
     LOG(INFO) << "Solving subset 1DoF rotation averaging problem in the mixed "
                  "prior system";
-    view_graph_grav.KeepLargestConnectedComponents(frames, images);
+    frame_to_component = view_graph_grav.KeepConnectedComponents(frames, images, min_component_size);
     RotationEstimator rotation_estimator_grav(options);
     if (!rotation_estimator_grav.EstimateRotations(
-            view_graph_grav, rigs, frames, images)) {
+            view_graph_grav, rigs, frames, images, frame_to_component)) {
       return false;
     }
-    view_graph.KeepLargestConnectedComponents(frames, images);
+    frame_to_component = view_graph.KeepConnectedComponents(frames, images, min_component_size);
   }
 
   // By default, run trivial rotation averaging for cameras with unknown
@@ -157,13 +158,14 @@ bool SolveRotationAveraging(ViewGraph& view_graph,
       }
     }
 
-    view_graph.KeepLargestConnectedComponents(frames_trivial, images_trivial);
+    std::unordered_map<frame_t, int> frame_to_component_trivial =
+        view_graph.KeepConnectedComponents(frames_trivial, images_trivial, min_component_size);
     // Run the trivial rotation averaging
     RotationEstimatorOptions options_trivial = options;
     options_trivial.skip_initialization = options.skip_initialization;
     RotationEstimator rotation_estimator_trivial(options_trivial);
     rotation_estimator_trivial.EstimateRotations(
-        view_graph, rigs_trivial, frames_trivial, images_trivial);
+        view_graph, rigs_trivial, frames_trivial, images_trivial, frame_to_component_trivial);
 
     // Collect the results
     std::unordered_map<image_t, Rigid3d> cams_from_world;
@@ -178,8 +180,8 @@ bool SolveRotationAveraging(ViewGraph& view_graph,
     options_ra.skip_initialization = true;
     RotationEstimator rotation_estimator(options_ra);
     status_ra =
-        rotation_estimator.EstimateRotations(view_graph, rigs, frames, images);
-    view_graph.KeepLargestConnectedComponents(frames, images);
+        rotation_estimator.EstimateRotations(view_graph, rigs, frames, images, frame_to_component);
+    frame_to_component = view_graph.KeepConnectedComponents(frames, images, min_component_size);
   } else {
     RotationAveragerOptions options_ra = options;
     // For cases where there are some cameras without known cam_from_rig
@@ -191,8 +193,8 @@ bool SolveRotationAveraging(ViewGraph& view_graph,
 
     RotationEstimator rotation_estimator(options_ra);
     status_ra =
-        rotation_estimator.EstimateRotations(view_graph, rigs, frames, images);
-    view_graph.KeepLargestConnectedComponents(frames, images);
+        rotation_estimator.EstimateRotations(view_graph, rigs, frames, images, frame_to_component);
+    frame_to_component = view_graph.KeepConnectedComponents(frames, images, min_component_size);
   }
   return status_ra;
 }

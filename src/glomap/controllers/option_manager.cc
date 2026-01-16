@@ -277,6 +277,8 @@ void OptionManager::AddInlierThresholdOptions() {
                               &mapper->inlier_thresholds.min_inlier_ratio);
   AddAndRegisterDefaultOption("Thresholds.max_rotation_error",
                               &mapper->inlier_thresholds.max_rotation_error);
+  AddAndRegisterDefaultOption("Thresholds.min_component_size",
+                              &mapper->inlier_thresholds.min_component_size);
 }
 
 void OptionManager::AddGravityRefinerOptions() {

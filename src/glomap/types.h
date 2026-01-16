@@ -17,6 +17,9 @@ struct InlierThresholdOptions {
   double min_inlier_num = 30;
   double min_inlier_ratio = 0.25;
   double max_rotation_error = 10.;  // in degree, for rotation averaging
+
+  // Minimum number of frames for connected components
+  int min_component_size = 100;
 };
 
 }  // namespace glomap

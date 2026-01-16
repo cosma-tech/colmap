@@ -22,6 +22,7 @@ int RunRotationAverager(int argc, char** argv) {
   bool use_stratified = true;
   bool refine_gravity = false;
   bool use_weight = false;
+  int min_component_size = 100;
 
   OptionManager options;
   options.AddRequiredOption("relpose_path", &relpose_path);
@@ -31,6 +32,7 @@ int RunRotationAverager(int argc, char** argv) {
   options.AddDefaultOption("use_stratified", &use_stratified);
   options.AddDefaultOption("refine_gravity", &refine_gravity);
   options.AddDefaultOption("use_weight", &use_weight);
+  options.AddDefaultOption("min_component_size", &min_component_size);
   options.AddGravityRefinerOptions();
   options.Parse(argc, argv);
 
@@ -92,9 +94,9 @@ int RunRotationAverager(int argc, char** argv) {
     ReadRelWeight(weight_path, images, view_graph);
   }
 
-  int num_img = view_graph.KeepLargestConnectedComponents(frames, images);
+  int num_img = view_graph.KeepConnectedComponents(frames, images, min_component_size);
   LOG(INFO) << num_img << " / " << images.size()
-            << " are within the largest connected component";
+            << " are within connected components";
 
   if (refine_gravity && gravity_path != "") {
     GravityRefiner grav_refiner(*options.gravity_refiner);
@@ -104,7 +106,7 @@ int RunRotationAverager(int argc, char** argv) {
   colmap::Timer run_timer;
   run_timer.Start();
   if (!SolveRotationAveraging(
-          view_graph, rigs, frames, images, rotation_averager_options)) {
+          view_graph, rigs, frames, images, rotation_averager_options, min_component_size)) {
     LOG(ERROR) << "Failed to solve global rotation averaging";
     return EXIT_FAILURE;
   }

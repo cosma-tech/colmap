@@ -27,6 +27,13 @@ struct ViewGraph {
       std::unordered_map<frame_t, Frame>& frames,
       std::unordered_map<image_t, Image>& images);
 
+  // Keep all connected components above a minimum frame threshold.
+  // Returns a map from frame_id to component_id for all kept components.
+  std::unordered_map<frame_t, int> KeepConnectedComponents(
+      std::unordered_map<frame_t, Frame>& frames,
+      std::unordered_map<image_t, Image>& images,
+      int min_num_frames);
+
   // Mark connected clusters of images, where the cluster_id is sorted by the
   // the number of images.
   int MarkConnectedComponents(std::unordered_map<frame_t, Frame>& frames,
