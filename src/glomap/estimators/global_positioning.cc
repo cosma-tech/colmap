@@ -226,10 +226,6 @@ void GlobalPositioner::AddPointToCameraConstraints(
   // Find the tracks that are relevant to the current set of cameras
   const size_t num_pt_to_cam = tracks.size();
 
-  VLOG(2) << num_pt_to_cam
-          << " point to camera constriants were added to the position "
-             "estimation problem.";
-
   if (num_pt_to_cam == 0) return;
 
   double weight_scale_pt = 1.0;
@@ -264,6 +260,10 @@ void GlobalPositioner::AddPointToCameraConstraints(
 
     AddTrackToProblem(track_id, rigs, cameras, frames, images, tracks);
   }
+
+  VLOG(2) << problem_->NumResidualBlocks() - num_cam_to_cam
+          << " point to camera constraints were added to the position "
+             "estimation problem.";
 }
 
 void GlobalPositioner::AddTrackToProblem(
