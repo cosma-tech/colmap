@@ -267,10 +267,11 @@ void ConvertDatabaseToGlomap(
 
     for (auto data_id : frame.ImageIds()) {
       image_t image_id = data_id.id;
-      if (images.find(image_id) != images.end()) {
-        images[image_id].frame_id = frame_id;
-        images[image_id].frame_ptr = &frames[frame_id];
-      }
+      THROW_CHECK(images.find(image_id) != images.end())
+          << "Frame " << frame_id << " references non-existent image "
+          << image_id << ". Did you run database cleaner?";
+      images[image_id].frame_id = frame_id;
+      images[image_id].frame_ptr = &frames[frame_id];
     }
   }
 
